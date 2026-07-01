@@ -66,5 +66,5 @@ else
     sed -i '1,3d' /etc/nginx/conf.d/default.conf
 fi
 
-exec nginx-debug -g "daemon off;"
+exec nginx -g "daemon off;"
 

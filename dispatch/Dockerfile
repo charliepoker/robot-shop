@@ -1,10 +1,17 @@
-FROM golang:1.17
+FROM golang:1.23 AS build
 
 WORKDIR /go/src/app
 
+COPY go.mod go.sum ./
+RUN go mod download
+
 COPY *.go .
+RUN CGO_ENABLED=0 go build -o /go/bin/dispatch .
 
-RUN go mod init dispatch && go get
-RUN go install
+FROM gcr.io/distroless/static-debian12
 
-CMD dispatch
+COPY --from=build /go/bin/dispatch /dispatch
+
+USER nonroot:nonroot
+
+CMD ["/dispatch"]

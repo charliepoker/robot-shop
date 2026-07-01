@@ -1,6 +1,6 @@
 #!/bin/sh
 
-DIR="/etc/mysql"
+DIR="/etc"
 
 FILE=$(fgrep -Rl datadir "$DIR")
 if [ -n "$FILE" ]

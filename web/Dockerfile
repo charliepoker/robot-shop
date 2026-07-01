@@ -1,9 +1,9 @@
-FROM alpine AS build
+FROM alpine:3.20 AS build
 ARG KEY
 
 WORKDIR /instana
 
-RUN apk add --update --no-cache wget
+RUN apk add --update --no-cache wget unzip
 
 ENV ARTI_PATH='artifact-public.instana.io/artifactory/shared/com/instana/nginx_tracing/'
 
@@ -21,7 +21,9 @@ RUN if [ -n "$KEY" ]; then \
     fi
 
 
-FROM nginx:1.21.6
+FROM nginx:1.27-alpine
+
+RUN apk add --no-cache bash
 
 EXPOSE 8080
 
@@ -34,6 +36,9 @@ ENV CATALOGUE_HOST=catalogue \
     INSTANA_SERVICE_NAME=nginx-web
 
 # Instana tracing
+# NOTE: the Instana nginx sensor above is only built for nginx 1.21.6 on
+# glibc, so INSTANA_AGENT_KEY-based tracing is not functional on this image.
+# It's superseded by OpenTelemetry instrumentation in a later phase.
 COPY --from=build /instana/*.so /tmp/
 
 COPY entrypoint.sh /root/

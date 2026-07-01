@@ -1,9 +1,7 @@
 #
 # Build
 #
-FROM debian:10 AS build
-
-RUN apt-get update && apt-get -y install maven
+FROM maven:3.9-eclipse-temurin-17 AS build
 
 WORKDIR /opt/shipping
 
@@ -15,16 +13,18 @@ RUN mvn package
 #
 # Run
 #
-FROM openjdk:8-jdk
+FROM eclipse-temurin:17-jre
 
 EXPOSE 8080
+
+RUN useradd --create-home --uid 1001 appuser
+USER appuser
 
 WORKDIR /opt/shipping
 
 ENV CART_ENDPOINT=cart:8080
 ENV DB_HOST=mysql
 
-COPY --from=build /opt/shipping/target/shipping-1.0.jar shipping.jar
+COPY --from=build --chown=appuser:appuser /opt/shipping/target/shipping-1.0.jar shipping.jar
 
 CMD [ "java", "-Xmn256m", "-Xmx768m", "-jar", "shipping.jar" ]
-
