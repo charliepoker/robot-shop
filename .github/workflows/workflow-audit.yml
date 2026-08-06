@@ -1,0 +1,38 @@
+name: Workflow Audit
+
+on:
+  pull_request:
+    branches: [master]
+    paths: ['.github/workflows/**']
+  push:
+    branches: [master]
+    paths: ['.github/workflows/**']
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  zizmor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # upload SARIF to the Security tab
+      actions: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # zizmor checks for this — don't leave the token on disk
+      - name: Run zizmor (online) → SARIF
+        env:
+          GH_TOKEN: ${{ github.token }}   # enables online audits (no "offline mode" warning)
+        run: pipx run --spec 'zizmor==1.29.0' zizmor --format sarif .github/workflows/ > zizmor.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: zizmor.sarif
+          category: zizmor
