@@ -23,7 +23,7 @@ jobs:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
         with:
           egress-policy: audit
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false   # zizmor checks for this — don't leave the token on disk
       - name: Run zizmor (online) → SARIF
@@ -32,7 +32,7 @@ jobs:
         run: pipx run --spec 'zizmor==1.29.0' zizmor --format sarif .github/workflows/ > zizmor.sarif
       - name: Upload SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3
         with:
           sarif_file: zizmor.sarif
           category: zizmor

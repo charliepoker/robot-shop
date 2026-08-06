@@ -40,13 +40,13 @@ jobs:
         with:
           egress-policy: audit   # Task 4.1: start in audit to learn egress, then tighten to block.
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0   # paths-filter diffs base..head
 
       - name: Path filter
         id: filter
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         with:
           filters: |
             cart:      ['cart/**']
@@ -93,12 +93,12 @@ jobs:
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # ---- Node.js (cart, catalogue, user) ----
       - name: Node · setup
         if: matrix.lang == 'node'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'   # current LTS
 
@@ -125,7 +125,7 @@ jobs:
       # ---- Python (payment) ----
       - name: Python · setup
         if: matrix.lang == 'python'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
 
@@ -146,13 +146,13 @@ jobs:
       # ---- Go (dispatch) ----
       - name: Go · setup
         if: matrix.lang == 'go'
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: ${{ matrix.service }}/go.mod   # reads go 1.23 from the module
 
       - name: Go · lint
         if: matrix.lang == 'go'
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7
         with:
           working-directory: ${{ matrix.service }}
           version: latest
@@ -164,7 +164,7 @@ jobs:
       # ---- Java 8 / Maven (shipping) ----
       - name: Java · setup
         if: matrix.lang == 'java'
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: '8'    # matches pom <java.version>1.8</java.version>
@@ -182,7 +182,7 @@ jobs:
       # ---- PHP (ratings) ----
       - name: PHP · setup
         if: matrix.lang == 'php'
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
         with:
           php-version: '8.3'
           tools: composer, phpcs, phpunit
