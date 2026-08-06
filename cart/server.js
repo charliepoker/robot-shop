@@ -405,3 +405,6 @@ app.listen(port, () => {
     logger.info('Started on port', port);
 });
 
+
+
+// ci: smoke-test the lint+test matrix 
