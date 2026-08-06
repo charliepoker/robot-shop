@@ -229,7 +229,7 @@ jobs:
             | tar -xz -C /usr/local/bin gitleaks
           gitleaks dir . --report-format sarif --report-path gitleaks.sarif --exit-code 1   # BLOCKING — repo is clean today
       - name: Upload SARIF
-        if: always()
+        if: always() && hashFiles('gitleaks.sarif') != ''   # skip upload if the scan produced nothing
         uses: github/codeql-action/upload-sarif@c3400c2f38909e0dcf3c3a41f2030a8217be5d3e # v3
         with: { sarif_file: gitleaks.sarif, category: gitleaks }
 
@@ -248,7 +248,7 @@ jobs:
           # REPORT-ONLY: drop `|| true` and add `--error` to make it blocking after baselining.
           semgrep scan --config p/ci --sarif --output semgrep.sarif || true
       - name: Upload SARIF
-        if: always()
+        if: always() && hashFiles('semgrep.sarif') != ''   # skip upload if the scan produced nothing
         uses: github/codeql-action/upload-sarif@c3400c2f38909e0dcf3c3a41f2030a8217be5d3e # v3
         with: { sarif_file: semgrep.sarif, category: semgrep }
 
@@ -273,7 +273,7 @@ jobs:
           exit-code: '0'          # REPORT-ONLY: flip to '1' after triaging into .trivyignore
           trivyignores: .trivyignore
       - name: Upload SARIF
-        if: always()
+        if: always() && hashFiles('trivy.sarif') != ''   # skip upload if the scan produced nothing
         uses: github/codeql-action/upload-sarif@c3400c2f38909e0dcf3c3a41f2030a8217be5d3e # v3
         with: { sarif_file: trivy.sarif, category: trivy }
 
@@ -293,6 +293,6 @@ jobs:
           # BLOCKING on error-level only — current findings are warning/info, so this is green today.
           hadolint --failure-threshold error $FILES
       - name: Upload SARIF
-        if: always()
+        if: always() && hashFiles('hadolint.sarif') != ''   # skip upload if the scan produced nothing
         uses: github/codeql-action/upload-sarif@c3400c2f38909e0dcf3c3a41f2030a8217be5d3e # v3
         with: { sarif_file: hadolint.sarif, category: hadolint }

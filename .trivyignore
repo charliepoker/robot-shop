@@ -1,0 +1,7 @@
+# .trivyignore — accepted vulnerability IDs, one per line, each with a
+# justification and a review date. Populate from the first Trivy run
+# (Security tab → Code scanning → category "trivy"), then flip the sca-iac
+# step's exit-code to '1' to make HIGH/CRITICAL block merges.
+#
+# Example:
+# CVE-2023-XXXXX  # base-image glibc, no upstream fix yet — review 2026-11
