@@ -1,0 +1,214 @@
+
+#
+# ── PIN BEFORE MERGE ─────────────────────────────────────────────────────────
+# Every third-party action below except harden-runner is on a version TAG. Pin
+# them all to a full commit SHA before merging (the whole point of Task 4.1):
+#     go install github.com/sethvargo/ratchet@latest
+#     ratchet pin .github/workflows/ci.yml
+# or paste the file into app.stepsecurity.io. Dependabot (Task 4.1) then bumps
+# the pinned SHAs via reviewed PRs. harden-runner is already SHA-pinned as the
+# reference example.
+# ─────────────────────────────────────────────────────────────────────────────
+name: CI
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch: {}
+
+# Cancel superseded runs on the same PR — saves Actions minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 1. Detect which services changed and emit a per-language matrix ─────────
+  detect-changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+      any: ${{ steps.set.outputs.any }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit   # Task 4.1: start in audit to learn egress, then tighten to block.
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # paths-filter diffs base..head
+
+      - name: Path filter
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            cart:      ['cart/**']
+            catalogue: ['catalogue/**']
+            user:      ['user/**']
+            payment:   ['payment/**']
+            dispatch:  ['dispatch/**']
+            shipping:  ['shipping/**']
+            ratings:   ['ratings/**']
+
+      - name: Build matrix
+        id: set
+        env:
+          CHANGES: ${{ steps.filter.outputs.changes }}   # JSON array, via env to avoid script injection
+        run: |
+          set -euo pipefail
+          MAP='{"cart":"node","catalogue":"node","user":"node","payment":"python","dispatch":"go","shipping":"java","ratings":"php"}'
+          INCLUDE=$(jq -cn --argjson map "$MAP" --argjson changed "$CHANGES" \
+            '[ $changed[] | select($map[.] != null) | {service: ., lang: $map[.]} ]')
+          if [ "$INCLUDE" = "[]" ]; then
+            echo "any=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "any=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "matrix={\"include\":$INCLUDE}" >> "$GITHUB_OUTPUT"
+          echo "Changed code services: $INCLUDE"
+
+  # ── 2. Lint + test each changed service on its own toolchain ────────────────
+  lint-test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false   # one service failing shouldn't hide the others
+      matrix: ${{ fromJSON(needs.detect-changes.outputs.matrix) }}
+    name: lint-test (${{ matrix.service }} · ${{ matrix.lang }})
+    env:
+      SERVICE: ${{ matrix.service }}   # via env — never interpolate matrix into run scripts directly
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@v4
+
+      # ---- Node.js (cart, catalogue, user) ----
+      - name: Node · setup
+        if: matrix.lang == 'node'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'   # current LTS
+
+      - name: Node · lint (eslint, shared flat config)
+        if: matrix.lang == 'node'
+        run: |
+          set -euo pipefail
+          # Services ship no eslint config/deps; install the shared toolchain at repo root
+          # where eslint.config.mjs lives, then lint the service source.
+          npm install --no-save --no-fund --no-audit eslint@^10 @eslint/js@^10 globals
+          npx eslint "$SERVICE"
+
+      - name: Node · test (skip upstream stub)
+        if: matrix.lang == 'node'
+        run: |
+          set -euo pipefail
+          TESTS=$(cd "$SERVICE" && npm pkg get scripts.test | tr -d '"')
+          if echo "$TESTS" | grep -q "no test specified"; then
+            echo "::warning title=No unit tests::$SERVICE still has the upstream stub — add real tests to gate this leg."
+          else
+            ( cd "$SERVICE" && npm ci && npm test )
+          fi
+
+      # ---- Python (payment) ----
+      - name: Python · setup
+        if: matrix.lang == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Python · lint + test
+        if: matrix.lang == 'python'
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip ruff pytest
+          # Minimal-but-real gate: syntax errors + undefined names. Expand rules in pyproject when ready.
+          ruff check --select E9,F63,F7,F82 "$SERVICE"
+          if find "$SERVICE" -name 'test_*.py' -o -name '*_test.py' | grep -q .; then
+            # Uncomment if tests import the app: pip install -r "$SERVICE/requirements.txt"
+            ( cd "$SERVICE" && pytest -q )
+          else
+            echo "::warning title=No unit tests::$SERVICE has no pytest tests yet — skipping."
+          fi
+
+      # ---- Go (dispatch) ----
+      - name: Go · setup
+        if: matrix.lang == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ matrix.service }}/go.mod   # reads go 1.23 from the module
+
+      - name: Go · lint
+        if: matrix.lang == 'go'
+        uses: golangci/golangci-lint-action@v7
+        with:
+          working-directory: ${{ matrix.service }}
+          version: latest
+
+      - name: Go · test
+        if: matrix.lang == 'go'
+        run: cd "$SERVICE" && go test ./...   # passes cleanly with no test files
+
+      # ---- Java 8 / Maven (shipping) ----
+      - name: Java · setup
+        if: matrix.lang == 'java'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'    # matches pom <java.version>1.8</java.version>
+          cache: maven
+
+      - name: Java · build + test
+        if: matrix.lang == 'java'
+        run: cd "$SERVICE" && mvn -B -ntp verify
+
+      - name: Java · checkstyle (report-only)
+        if: matrix.lang == 'java'
+        continue-on-error: true   # modern checkstyle wants JDK 11+; non-blocking on 8
+        run: cd "$SERVICE" && mvn -B -ntp checkstyle:check -Dcheckstyle.failOnViolation=false || true
+
+      # ---- PHP (ratings) ----
+      - name: PHP · setup
+        if: matrix.lang == 'php'
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer, phpcs, phpunit
+
+      - name: PHP · lint + test
+        if: matrix.lang == 'php'
+        working-directory: ${{ matrix.service }}/html   # composer + source live here
+        run: |
+          set -euo pipefail
+          composer install --no-interaction --no-progress --prefer-dist
+          # PSR-12, report-only for legacy code — flip to blocking after cleanup.
+          phpcs --standard=PSR12 --report=full src index.php info.php || echo "::warning title=phpcs::PSR-12 findings (report-only)"
+          if [ -f phpunit.xml ] || [ -f phpunit.xml.dist ]; then
+            vendor/bin/phpunit
+          else
+            echo "::warning title=No unit tests::ratings has no phpunit config yet — skipping."
+          fi
+
+  ci-gate:
+    needs: [detect-changes, lint-test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate
+        run: |
+          echo "detect=${{ needs.detect-changes.result }} lint-test=${{ needs.lint-test.result }}"
+          if [ "${{ needs.detect-changes.result }}" = "failure" ] || [ "${{ needs.lint-test.result }}" = "failure" ]; then
+            exit 1
+          fi
