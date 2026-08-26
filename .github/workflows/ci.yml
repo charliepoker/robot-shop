@@ -1,14 +1,3 @@
-
-#
-# ── PIN BEFORE MERGE ─────────────────────────────────────────────────────────
-# Every third-party action below except harden-runner is on a version TAG. Pin
-# them all to a full commit SHA before merging (the whole point of Task 4.1):
-#     go install github.com/sethvargo/ratchet@latest
-#     ratchet pin .github/workflows/ci.yml
-# or paste the file into app.stepsecurity.io. Dependabot (Task 4.1) then bumps
-# the pinned SHAs via reviewed PRs. harden-runner is already SHA-pinned as the
-# reference example.
-# ─────────────────────────────────────────────────────────────────────────────
 name: CI
 
 on:
@@ -42,6 +31,7 @@ jobs:
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          persist-credentials: false
           fetch-depth: 0   # paths-filter diffs base..head
 
       - name: Path filter
@@ -94,6 +84,8 @@ jobs:
           egress-policy: audit
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       # ---- Node.js (cart, catalogue, user) ----
       - name: Node · setup
@@ -202,7 +194,7 @@ jobs:
           fi
 
   ci-gate:
-    needs: [detect-changes, lint-test, secret-scan, sast, sca-iac, dockerfile-lint]
+    needs: [detect-changes, lint-test, secret-scan, sast, sca-iac, dockerfile-lint, build-scan-sbom]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -210,7 +202,8 @@ jobs:
         run: |
           for r in "${{ needs.detect-changes.result }}" "${{ needs.lint-test.result }}" \
                    "${{ needs.secret-scan.result }}" "${{ needs.sast.result }}" \
-                   "${{ needs.sca-iac.result }}" "${{ needs.dockerfile-lint.result }}"; do
+                   "${{ needs.sca-iac.result }}" "${{ needs.dockerfile-lint.result }}" \
+                   "${{ needs.build-scan-sbom.result }}"; do
             [ "$r" = "failure" ] && { echo "A required check failed."; exit 1; }
           done
           echo "All required checks passed."
@@ -223,6 +216,8 @@ jobs:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
         with: { egress-policy: audit }
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Gitleaks (pinned binary, not a wrapper action)
         run: |
           curl -sL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
@@ -240,6 +235,8 @@ jobs:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
         with: { egress-policy: audit }   # note: this job reaches semgrep.dev for rules — allowlist it in block mode
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with: { python-version: '3.12' }
       - name: Semgrep (p/ci ruleset) → SARIF
@@ -259,6 +256,8 @@ jobs:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
         with: { egress-policy: audit }
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       # CVE-2026-33634 (Mar 2026): trivy-action tags 0.0.1–0.34.2 were compromised via force-pushed tags.
       # Pinned to v0.36.0 (first-safe was 0.35.0) by commit SHA, not tag, so this can't be silently re-pointed.
       - name: Trivy (deps + secrets + misconfig) → SARIF
@@ -284,6 +283,8 @@ jobs:
       - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
         with: { egress-policy: audit }
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Hadolint (all Dockerfiles) → SARIF
         run: |
           curl -sL https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-Linux-x86_64 \
@@ -296,3 +297,63 @@ jobs:
         if: always() && hashFiles('hadolint.sarif') != ''   # skip upload if the scan produced nothing
         uses: github/codeql-action/upload-sarif@c3400c2f38909e0dcf3c3a41f2030a8217be5d3e # v3
         with: { sarif_file: hadolint.sarif, category: hadolint }
+
+  build-scan-sbom:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write        # Trivy image SARIF -> Security tab
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.detect-changes.outputs.matrix) }}
+    name: build-scan-sbom (${{ matrix.service }})
+    env:
+      IMAGE: ${{ matrix.service }}:pr-${{ github.sha }}
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { persist-credentials: false }
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3          # ⚠️ pin before push
+
+      - name: Build image (no push; load for scanning)
+        uses: docker/build-push-action@v6            # ⚠️ pin before push
+        with:
+          context: ${{ matrix.service }}
+          file: ${{ matrix.service }}/Dockerfile
+          push: false
+          load: true                                 # into local docker daemon so Trivy/Syft can read it
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Trivy image scan (report-only)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.IMAGE }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          format: sarif
+          output: trivy-image.sarif
+          exit-code: '0'                             # report-only: flip to '1' after baselining
+          trivyignores: .trivyignore
+      - name: Upload Trivy image SARIF
+        if: always() && hashFiles('trivy-image.sarif') != ''
+        uses: github/codeql-action/upload-sarif@c3400c2f38909e0dcf3c3a41f2030a8217be5d3e # v3
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image-${{ matrix.service }}   # unique per service so legs don't overwrite
+
+      - name: Generate CycloneDX SBOM (Syft)
+        uses: anchore/sbom-action@v0                 # ⚠️ pin before push
+        with:
+          image: ${{ env.IMAGE }}
+          format: cyclonedx-json
+          output-file: sbom-${{ matrix.service }}.cdx.json
+          artifact-name: sbom-${{ matrix.service }}   # unique artifact name per leg (upload-artifact v4 requires it)
+       
