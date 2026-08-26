@@ -407,5 +407,5 @@ app.listen(port, () => {
 
 
 
-// ci: smoke-test the lint+test matrix 
-// ci: multi-leg matrix smoke test
+
+// ci: exercise 4.4 build+scan+sbom
