@@ -1,0 +1,8 @@
+# zizmor configuration — https://docs.zizmor.sh/configuration/
+rules:
+  adhoc-packages:
+    ignore:
+      # CI installs pinned linters/scanners (eslint, ruff, semgrep, gitleaks,
+      # trivy, hadolint) directly on the ephemeral runner. These are CI tooling,
+      # not application dependencies, so they don't belong in an app lockfile.
+      - ci.yml

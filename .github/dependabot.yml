@@ -1,0 +1,13 @@
+# .github/dependabot.yml
+# Keeps the SHA-pinned GitHub Actions current via reviewed PRs (Task 4.1).
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"                 # scans .github/workflows/
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns: ["*"]            # batch all action bumps into one PR.g 
