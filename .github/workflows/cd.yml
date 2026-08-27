@@ -89,6 +89,7 @@ jobs:
       - name: Cosign keyless sign (by digest, OCI referrers)
         env:
           IMG: ${{ env.REGISTRY }}/${{ matrix.repo }}@${{ steps.build.outputs.digest }}
+          COSIGN_EXPERIMENTAL: "1"
         run: cosign sign --yes --registry-referrers-mode oci-1-1 "$IMG"
 
       - name: SLSA build-provenance attestation
@@ -109,6 +110,7 @@ jobs:
       - name: Cosign attest SBOM (CycloneDX, OCI referrers)
         env:
           IMG: ${{ env.REGISTRY }}/${{ matrix.repo }}@${{ steps.build.outputs.digest }}
+          COSIGN_EXPERIMENTAL: "1"
         run: cosign attest --yes --registry-referrers-mode oci-1-1 --type cyclonedx --predicate sbom.cdx.json "$IMG"
 
       - name: Verify signature + attestations (in-pipeline gate)
@@ -117,6 +119,7 @@ jobs:
           IDENTITY: https://github.com/charliepoker/robot-shop/.github/workflows/cd.yml@refs/heads/master
           ISSUER: https://token.actions.githubusercontent.com
           GH_TOKEN: ${{ github.token }}
+          COSIGN_EXPERIMENTAL: "1"
         run: |
           set -euo pipefail
           echo "::group::cosign verify (signature)"
