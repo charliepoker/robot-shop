@@ -1,0 +1,82 @@
+name: CD
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'cart/**'
+      - 'catalogue/**'
+      - 'user/**'
+      - 'web/**'
+      - 'payment/**'
+      - 'dispatch/**'
+      - 'shipping/**'
+      - 'ratings/**'
+      - 'mongo/**'
+  workflow_dispatch: {}          # manual full build — use this for the FIRST ECR population
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false      # never cancel a push mid-way
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write            # REQUIRED for OIDC AssumeRoleWithWebIdentity
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { service: cart,      repo: cart }
+          - { service: catalogue, repo: catalogue }
+          - { service: user,      repo: user }
+          - { service: web,       repo: web }
+          - { service: payment,   repo: payment }
+          - { service: dispatch,  repo: dispatch }
+          - { service: shipping,  repo: shipping }
+          - { service: ratings,   repo: ratings }
+          - { service: mongo,     repo: mongodb }   # dir 'mongo' -> ECR repo 'mongodb'
+    name: build-push (${{ matrix.service }})
+    env:
+      REGISTRY: 448049792905.dkr.ecr.us-east-1.amazonaws.com
+      AWS_REGION: us-east-1
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { persist-credentials: false }
+
+      - name: Configure AWS credentials (OIDC — no static keys)
+        uses: aws-actions/configure-aws-credentials@v4   # ⚠️ pin before push
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@v2            # ⚠️ pin before push
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3              # ⚠️ pin before push
+
+      - name: Build + push immutable :$GIT_SHA
+        id: build
+        uses: docker/build-push-action@v6                # ⚠️ pin before push
+        with:
+          context: ${{ matrix.service }}
+          file: ${{ matrix.service }}/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ matrix.repo }}:${{ github.sha }}
+          provenance: false      # single clean manifest; real SLSA provenance comes in 4.6
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Show pushed digest
+        env:
+          REPO: ${{ matrix.repo }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "$REPO@$DIGEST"   # consumed by 4.6 (sign by digest) and 4.7 (GitOps bump)
