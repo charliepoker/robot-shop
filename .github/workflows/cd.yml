@@ -81,8 +81,7 @@ jobs:
           REPO: ${{ matrix.repo }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: echo "$REPO@$DIGEST"   # consumed by 4.6 (sign by digest) and 4.7 (GitOps bump)
-      
-              - name: Install Cosign
+      - name: Install Cosign
         uses: sigstore/cosign-installer@v3          # ⚠️ pin before push
 
       - name: Cosign keyless sign (by digest)
