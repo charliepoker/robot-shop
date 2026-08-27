@@ -111,7 +111,7 @@ jobs:
         env:
           IMG: ${{ env.REGISTRY }}/${{ matrix.repo }}@${{ steps.build.outputs.digest }}
           COSIGN_EXPERIMENTAL: "1"
-        run: cosign attest --yes --registry-referrers-mode oci-1-1 --type cyclonedx --predicate sbom.cdx.json "$IMG"
+        run: cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "$IMG"
 
       - name: Verify signature + attestations (in-pipeline gate)
         env:
@@ -128,7 +128,7 @@ jobs:
             --certificate-oidc-issuer "$ISSUER"
           echo "::endgroup::"
           echo "::group::cosign verify-attestation (CycloneDX SBOM)"
-          cosign verify-attestation --registry-referrers-mode oci-1-1 "$IMG" --type cyclonedx \
+          cosign verify-attestation "$IMG" --type cyclonedx \
             --certificate-identity "$IDENTITY" \
             --certificate-oidc-issuer "$ISSUER"
           echo "::endgroup::"
