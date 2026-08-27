@@ -28,6 +28,7 @@ jobs:
     permissions:
       contents: read
       id-token: write            # REQUIRED for OIDC AssumeRoleWithWebIdentity
+      attestations: write        
     strategy:
       fail-fast: false
       matrix:
@@ -80,3 +81,53 @@ jobs:
           REPO: ${{ matrix.repo }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: echo "$REPO@$DIGEST"   # consumed by 4.6 (sign by digest) and 4.7 (GitOps bump)
+      
+              - name: Install Cosign
+        uses: sigstore/cosign-installer@v3          # ⚠️ pin before push
+
+      - name: Cosign keyless sign (by digest)
+        env:
+          IMG: ${{ env.REGISTRY }}/${{ matrix.repo }}@${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "$IMG"               # OIDC -> Fulcio cert -> Rekor log
+
+      - name: SLSA build-provenance attestation
+        uses: actions/attest-build-provenance@v2    # ⚠️ pin before push
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ matrix.repo }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Generate CycloneDX SBOM (Syft)
+        uses: anchore/sbom-action@v0                # ⚠️ pin before push
+        with:
+          image: ${{ env.REGISTRY }}/${{ matrix.repo }}@${{ steps.build.outputs.digest }}
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+          upload-artifact: false
+
+      - name: Cosign attest SBOM (CycloneDX)
+        env:
+          IMG: ${{ env.REGISTRY }}/${{ matrix.repo }}@${{ steps.build.outputs.digest }}
+        run: cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "$IMG"
+
+      - name: Verify signature + attestations (in-pipeline gate)
+        env:
+          IMG: ${{ env.REGISTRY }}/${{ matrix.repo }}@${{ steps.build.outputs.digest }}
+          IDENTITY: https://github.com/charliepoker/robot-shop/.github/workflows/cd.yml@refs/heads/master
+          ISSUER: https://token.actions.githubusercontent.com
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "::group::cosign verify (signature)"
+          cosign verify "$IMG" \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER"
+          echo "::endgroup::"
+          echo "::group::cosign verify-attestation (CycloneDX SBOM)"
+          cosign verify-attestation "$IMG" --type cyclonedx \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER"
+          echo "::endgroup::"
+          echo "::group::gh attestation verify (SLSA provenance)"
+          gh attestation verify "oci://$IMG" --repo charliepoker/robot-shop
+          echo "::endgroup::"
