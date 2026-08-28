@@ -137,3 +137,58 @@ jobs:
           echo "::endgroup::"
           echo "SLSA provenance created — verify locally: gh attestation verify oci://$IMG --repo charliepoker/robot-shop"
           exit 0
+
+  bump-gitops:
+    needs: build-push
+    if: ${{ needs.build-push.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read            # the App token (not GITHUB_TOKEN) grants gitOps write
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with: { egress-policy: audit }
+
+      - name: Mint GitHub App token (short-lived, gitOps-scoped)
+        id: app-token
+        uses: actions/create-github-app-token@v1   # ⚠️ pin before push
+        with:
+          app-id: ${{ secrets.GITOPS_APP_ID }}
+          private-key: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
+          owner: charliepoker
+          repositories: robot-shop-gitOps
+
+      - name: Checkout GitOps repo
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: charliepoker/robot-shop-gitOps
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false     # keeps zizmor happy; we push via remote URL below
+          path: gitops
+
+      - name: Bump image refs to ECR :$GIT_SHA
+        working-directory: gitops/argocd/manifests/robot-shop
+        env:
+          REGISTRY: 448049792905.dkr.ecr.us-east-1.amazonaws.com
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          for name in cart catalogue user web payment dispatch shipping ratings mongodb; do
+            file="${name}-deployment.yaml"
+            yq -i ".spec.template.spec.containers[0].image = \"${REGISTRY}/${name}:${SHA}\"" "$file"
+            echo "bumped $file -> ${REGISTRY}/${name}:${SHA}"
+          done
+
+      - name: Commit + push
+        working-directory: gitops
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          git config user.name  "robot-shop-cd[bot]"
+          git config user.email "robot-shop-cd[bot]@users.noreply.github.com"
+          if git diff --quiet; then echo "No image changes to commit."; exit 0; fi
+          git add -A
+          git commit -m "chore(deploy): roll robot-shop images to ${SHA} [skip ci]"
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/charliepoker/robot-shop-gitOps.git"
+          git push
