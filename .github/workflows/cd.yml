@@ -116,7 +116,6 @@ jobs:
           IMG: ${{ env.REGISTRY }}/${{ matrix.repo }}@${{ steps.build.outputs.digest }}
           IDENTITY: https://github.com/charliepoker/robot-shop/.github/workflows/cd.yml@refs/heads/master
           ISSUER: https://token.actions.githubusercontent.com
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           echo "::group::cosign verify (signature)"
@@ -129,7 +128,5 @@ jobs:
             --certificate-identity "$IDENTITY" \
             --certificate-oidc-issuer "$ISSUER"
           echo "::endgroup::"
-          echo "::group::gh attestation verify (SLSA provenance) — non-blocking"
-          timeout 90 gh attestation verify "oci://$IMG" --repo charliepoker/robot-shop \
-            || echo "::warning::provenance verify skipped (gh/ECR OCI auth timeout) — attestation was still created"
-          echo "::endgroup::"
+          echo "SLSA provenance attestation was created — verify locally where ECR auth works:"
+          echo "  gh attestation verify oci://$IMG --repo charliepoker/robot-shop"
