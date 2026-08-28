@@ -86,11 +86,6 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3          # ⚠️ pin before push
 
-      - name: Clean prior signatures (idempotent re-sign)
-        env:
-          IMG: ${{ env.REGISTRY }}/${{ matrix.repo }}@${{ steps.build.outputs.digest }}
-        run: cosign clean --force "$IMG" || true
-
       - name: Cosign keyless sign (by digest)
         env:
           IMG: ${{ env.REGISTRY }}/${{ matrix.repo }}@${{ steps.build.outputs.digest }}
@@ -124,14 +119,12 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::cosign verify (signature)"
-          cosign verify "$IMG" \
-            --certificate-identity "$IDENTITY" \
-            --certificate-oidc-issuer "$ISSUER"
+          timeout 120 cosign verify "$IMG" \
+            --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER"
           echo "::endgroup::"
           echo "::group::cosign verify-attestation (CycloneDX SBOM)"
-          cosign verify-attestation "$IMG" --type cyclonedx \
-            --certificate-identity "$IDENTITY" \
-            --certificate-oidc-issuer "$ISSUER"
+          timeout 120 cosign verify-attestation "$IMG" --type cyclonedx \
+            --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER"
           echo "::endgroup::"
-          echo "SLSA provenance attestation was created — verify locally where ECR auth works:"
-          echo "  gh attestation verify oci://$IMG --repo charliepoker/robot-shop"
+          echo "Both cosign verifications passed. SLSA provenance created (verify locally)."
+          exit 0
