@@ -86,6 +86,11 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3          # ⚠️ pin before push
 
+      - name: Clean prior signatures (idempotent re-sign)
+        env:
+          IMG: ${{ env.REGISTRY }}/${{ matrix.repo }}@${{ steps.build.outputs.digest }}
+        run: cosign clean --force "$IMG" || true
+
       - name: Cosign keyless sign (by digest)
         env:
           IMG: ${{ env.REGISTRY }}/${{ matrix.repo }}@${{ steps.build.outputs.digest }}
@@ -119,12 +124,16 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::cosign verify (signature)"
-          timeout 120 cosign verify "$IMG" \
-            --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER"
+          timeout 180 cosign verify "$IMG" \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER" > /dev/null
+          echo "signature VERIFIED for $IMG (payload suppressed)"
           echo "::endgroup::"
           echo "::group::cosign verify-attestation (CycloneDX SBOM)"
-          timeout 120 cosign verify-attestation "$IMG" --type cyclonedx \
-            --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER"
+          timeout 180 cosign verify-attestation "$IMG" --type cyclonedx \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER" > /dev/null
+          echo "SBOM attestation VERIFIED (payload suppressed — multi-MB single-line output chokes the runner log)"
           echo "::endgroup::"
-          echo "Both cosign verifications passed. SLSA provenance created (verify locally)."
+          echo "SLSA provenance created — verify locally: gh attestation verify oci://$IMG --repo charliepoker/robot-shop"
           exit 0
