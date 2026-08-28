@@ -86,6 +86,11 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3          # ⚠️ pin before push
 
+      - name: Clean prior signatures (idempotent re-sign)
+        env:
+          IMG: ${{ env.REGISTRY }}/${{ matrix.repo }}@${{ steps.build.outputs.digest }}
+        run: cosign clean --force "$IMG" || true
+
       - name: Cosign keyless sign (by digest)
         env:
           IMG: ${{ env.REGISTRY }}/${{ matrix.repo }}@${{ steps.build.outputs.digest }}
