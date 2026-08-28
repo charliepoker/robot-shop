@@ -86,11 +86,10 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3          # ⚠️ pin before push
 
-      - name: Cosign keyless sign (by digest, OCI referrers)
+      - name: Cosign keyless sign (by digest)
         env:
           IMG: ${{ env.REGISTRY }}/${{ matrix.repo }}@${{ steps.build.outputs.digest }}
-          COSIGN_EXPERIMENTAL: "1"
-        run: cosign sign --yes --registry-referrers-mode oci-1-1 "$IMG"
+        run: cosign sign --yes "$IMG"
 
       - name: SLSA build-provenance attestation
         uses: actions/attest-build-provenance@v2    # ⚠️ pin before push
@@ -107,10 +106,9 @@ jobs:
           output-file: sbom.cdx.json
           upload-artifact: false
 
-      - name: Cosign attest SBOM (CycloneDX, OCI referrers)
+      - name: Cosign attest SBOM (CycloneDX)
         env:
           IMG: ${{ env.REGISTRY }}/${{ matrix.repo }}@${{ steps.build.outputs.digest }}
-          COSIGN_EXPERIMENTAL: "1"
         run: cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "$IMG"
 
       - name: Verify signature + attestations (in-pipeline gate)
@@ -119,11 +117,10 @@ jobs:
           IDENTITY: https://github.com/charliepoker/robot-shop/.github/workflows/cd.yml@refs/heads/master
           ISSUER: https://token.actions.githubusercontent.com
           GH_TOKEN: ${{ github.token }}
-          COSIGN_EXPERIMENTAL: "1"
         run: |
           set -euo pipefail
           echo "::group::cosign verify (signature)"
-          cosign verify --registry-referrers-mode oci-1-1 "$IMG" \
+          cosign verify "$IMG" \
             --certificate-identity "$IDENTITY" \
             --certificate-oidc-issuer "$ISSUER"
           echo "::endgroup::"
