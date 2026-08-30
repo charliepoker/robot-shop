@@ -1,0 +1,4 @@
+# Default owner for everything
+*            @charliepoker
+# The pipeline itself gets extra scrutiny
+/.github/    @charliepoker

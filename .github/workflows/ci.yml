@@ -318,10 +318,10 @@ jobs:
         with: { persist-credentials: false }
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3          # ⚠️ pin before push
+        uses: docker/setup-buildx-action@v3          
 
       - name: Build image (no push; load for scanning)
-        uses: docker/build-push-action@v6            # ⚠️ pin before push
+        uses: docker/build-push-action@v6            
         with:
           context: ${{ matrix.service }}
           file: ${{ matrix.service }}/Dockerfile
@@ -350,10 +350,23 @@ jobs:
           category: trivy-image-${{ matrix.service }}   # unique per service so legs don't overwrite
 
       - name: Generate CycloneDX SBOM (Syft)
-        uses: anchore/sbom-action@v0                 # ⚠️ pin before push
+        uses: anchore/sbom-action@v0                 
         with:
           image: ${{ env.IMAGE }}
           format: cyclonedx-json
           output-file: sbom-${{ matrix.service }}.cdx.json
           artifact-name: sbom-${{ matrix.service }}   # unique artifact name per leg (upload-artifact v4 requires it)
-       
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with: { egress-policy: audit }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { persist-credentials: false }
+      - uses: actions/dependency-review-action@v4   
+        with:
+          fail-on-severity: high
