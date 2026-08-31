@@ -225,7 +225,7 @@ jobs:
           gitleaks dir . --report-format sarif --report-path gitleaks.sarif --exit-code 1   # BLOCKING — repo is clean today
       - name: Upload SARIF
         if: always() && hashFiles('gitleaks.sarif') != ''   # skip upload if the scan produced nothing
-        uses: github/codeql-action/upload-sarif@c3400c2f38909e0dcf3c3a41f2030a8217be5d3e # v3
+        uses: github/codeql-action/upload-sarif@6f5948dfacef28e207b48d0905cf90c03365536d # v3
         with: { sarif_file: gitleaks.sarif, category: gitleaks }
 
   sast:
@@ -246,7 +246,7 @@ jobs:
           semgrep scan --config p/ci --sarif --output semgrep.sarif || true
       - name: Upload SARIF
         if: always() && hashFiles('semgrep.sarif') != ''   # skip upload if the scan produced nothing
-        uses: github/codeql-action/upload-sarif@c3400c2f38909e0dcf3c3a41f2030a8217be5d3e # v3
+        uses: github/codeql-action/upload-sarif@6f5948dfacef28e207b48d0905cf90c03365536d # v3
         with: { sarif_file: semgrep.sarif, category: semgrep }
 
   sca-iac:
@@ -273,7 +273,7 @@ jobs:
           trivyignores: .trivyignore
       - name: Upload SARIF
         if: always() && hashFiles('trivy.sarif') != ''   # skip upload if the scan produced nothing
-        uses: github/codeql-action/upload-sarif@c3400c2f38909e0dcf3c3a41f2030a8217be5d3e # v3
+        uses: github/codeql-action/upload-sarif@6f5948dfacef28e207b48d0905cf90c03365536d # v3
         with: { sarif_file: trivy.sarif, category: trivy }
 
   dockerfile-lint:
@@ -295,7 +295,7 @@ jobs:
           hadolint --failure-threshold error $FILES
       - name: Upload SARIF
         if: always() && hashFiles('hadolint.sarif') != ''   # skip upload if the scan produced nothing
-        uses: github/codeql-action/upload-sarif@c3400c2f38909e0dcf3c3a41f2030a8217be5d3e # v3
+        uses: github/codeql-action/upload-sarif@6f5948dfacef28e207b48d0905cf90c03365536d # v3
         with: { sarif_file: hadolint.sarif, category: hadolint }
 
   build-scan-sbom:
@@ -344,7 +344,7 @@ jobs:
           trivyignores: .trivyignore
       - name: Upload Trivy image SARIF
         if: always() && hashFiles('trivy-image.sarif') != ''
-        uses: github/codeql-action/upload-sarif@c3400c2f38909e0dcf3c3a41f2030a8217be5d3e # v3
+        uses: github/codeql-action/upload-sarif@6f5948dfacef28e207b48d0905cf90c03365536d # v3
         with:
           sarif_file: trivy-image.sarif
           category: trivy-image-${{ matrix.service }}   # unique per service so legs don't overwrite
