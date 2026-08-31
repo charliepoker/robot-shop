@@ -156,6 +156,7 @@ jobs:
           private-key: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
           owner: charliepoker
           repositories: robot-shop-gitOps
+          permission-contents: write     # <-- scope the token; clears zizmor #512
 
       - name: Checkout GitOps repo
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
