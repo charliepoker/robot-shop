@@ -32,7 +32,7 @@ jobs:
         run: pipx run --spec 'zizmor==1.29.0' zizmor --format sarif .github/workflows/ > zizmor.sarif
       - name: Upload SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3
+        uses: github/codeql-action/upload-sarif@6f5948dfacef28e207b48d0905cf90c03365536d # v3
         with:
           sarif_file: zizmor.sarif
           category: zizmor
