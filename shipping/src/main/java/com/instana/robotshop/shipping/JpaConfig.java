@@ -21,8 +21,8 @@ public class JpaConfig {
 
         bob.driverClassName("com.mysql.jdbc.Driver");
         bob.url(JDBC_URL);
-        bob.username("shipping");
-        bob.password("secret");
+        bob.username(System.getenv("DB_USER") == null ? "shipping" : System.getenv("DB_USER"));
+        bob.password(System.getenv("DB_PASSWORD") == null ? "secret" : System.getenv("DB_PASSWORD"));
 
         return bob.build();
     }
