@@ -1,122 +1,133 @@
-# Sample Microservice Application
+# Robot Shop: a signed, attested CI/CD supply chain on EKS
 
-Stan's Robot Shop is a sample microservice application you can use as a sandbox to test and learn containerised application orchestration and monitoring techniques. It is not intended to be a comprehensive reference example of how to write a microservices application, although you will better understand some of those concepts by playing with Stan's Robot Shop. To be clear, the error handling is patchy and there is not any security built into the application.
+[![CI](https://github.com/charliepoker/robot-shop/actions/workflows/ci.yml/badge.svg)](https://github.com/charliepoker/robot-shop/actions/workflows/ci.yml)
+[![CD](https://github.com/charliepoker/robot-shop/actions/workflows/cd.yml/badge.svg)](https://github.com/charliepoker/robot-shop/actions/workflows/cd.yml)
+[![Workflow Audit](https://github.com/charliepoker/robot-shop/actions/workflows/workflow-audit.yml/badge.svg)](https://github.com/charliepoker/robot-shop/actions/workflows/workflow-audit.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-You can get more detailed information from my [blog post](https://www.instana.com/blog/stans-robot-shop-sample-microservice-application/) about this sample microservice application.
+This is a fork of [instana/robot-shop](https://github.com/instana/robot-shop), a polyglot microservices demo app. **I use it as the workload.** The application code is mostly upstream. **My work is the delivery pipeline around it**: PR security gates, keyless image signing, build attestations, and an automated GitOps hand-off to an EKS cluster that refuses unsigned images.
 
-This sample microservice application has been built using these technologies:
-- NodeJS ([Express](http://expressjs.com/))
-- Java ([Spring Boot](https://spring.io/))
-- Python ([Flask](http://flask.pocoo.org))
-- Golang
-- PHP (Apache)
-- MongoDB
-- Redis
-- MySQL ([Maxmind](http://www.maxmind.com) data)
-- RabbitMQ
-- Nginx
-- AngularJS (1.x)
+> **Status (Oct 2026):** pipeline built and exercised end to end (tagged `v4.0.0` for the pipeline work). The AWS environment is **torn down to control cost**, so any `*.devopsportfolio.com` URL is offline. It rebuilds from the three repos below. See [Limitations](#limitations-and-roadmap) for what is and isn't enforced today.
 
-The various services in the sample application already include all required Instana components installed and configured. The Instana components provide automatic instrumentation for complete end to end [tracing](https://docs.instana.io/core_concepts/tracing/), as well as complete visibility into time series metrics for all the technologies.
+## The three repos
 
-To see the application performance results in the Instana dashboard, you will first need an Instana account. Don't worry a [trial account](https://instana.com/trial?utm_source=github&utm_medium=robot_shop) is free.
+| Repo | Role |
+|---|---|
+| **robot-shop** (this repo) | App code + CI/CD pipeline (GitHub Actions) |
+| [robot-shop-infra](https://github.com/charliepoker/robot-shop-infra) | Terraform: VPC, EKS, RDS MySQL, ECR, Route 53, ACM, KMS, Secrets Manager, GitHub OIDC |
+| [robot-shop-gitOps](https://github.com/charliepoker/robot-shop-gitOps) | Argo CD app-of-apps: platform tools, Kyverno policies, observability, app manifests |
 
-## Build from Source
-To optionally build from source (you will need a newish version of Docker to do this) use Docker Compose. Optionally edit the `.env` file to specify an alternative image registry and version tag; see the official [documentation](https://docs.docker.com/compose/env-file/) for more information.
+## Pipeline at a glance
 
-To download the tracing module for Nginx, it needs a valid Instana agent key. Set this in the environment before starting the build.
+```mermaid
+flowchart LR
+    PR["Pull request to master"] --> CI
 
-```shell
-$ export INSTANA_AGENT_KEY="<your agent key>"
+    subgraph CI["CI - ci.yml"]
+        direction TB
+        L["Lint + unit tests<br/>changed services only"]
+        S["Gitleaks, Semgrep,<br/>Trivy fs/config, Hadolint"]
+        B["Build image, Trivy image scan,<br/>Syft SBOM"]
+        G{{"ci-gate"}}
+        L --> G
+        S --> G
+        B --> G
+    end
+
+    CI -->|"merge"| CD
+
+    subgraph CD["CD - cd.yml"]
+        direction TB
+        O["OIDC to AWS<br/>no static keys"] --> P["Push immutable<br/>:GIT_SHA to ECR"]
+        P --> SG["Cosign keyless sign<br/>by digest"]
+        SG --> AT["SLSA provenance +<br/>CycloneDX SBOM attestation"]
+        AT --> V["In-pipeline verify"]
+    end
+
+    CD --> BUMP["GitHub App token bumps<br/>image tag in robot-shop-gitOps"]
+    BUMP --> ARGO["Argo CD sync"]
+    ARGO --> KYV{"Kyverno admission:<br/>signature valid?"}
+    KYV -->|"yes"| RUN["Pod runs"]
+    KYV -->|"no"| REJ["Rejected"]
 ```
 
-Now build all the images.
+Security is checked in two places: in the pipeline, and again at cluster admission. Even if CI were bypassed, an image not signed by this repo's `cd.yml` on `master` would not be admitted.
 
-```shell
-$ docker-compose build
-```
+## What each stage does today
 
-If you modified the `.env` file and changed the image registry, you need to push the images to that registry
+Stated exactly, including what only reports and does not block.
 
-```shell
-$ docker-compose push
-```
+### On every pull request (`ci.yml`)
 
-## Run Locally
-You can run it locally for testing.
+| Check | Tool | Behaviour  |
+|---|---|---|
+| Change detection | path filter | Only changed services build, so a PR touching `cart/` doesn't build `shipping/` |
+| Lint + unit tests | eslint, ruff, golangci-lint, Maven, phpcs (per language) | **Blocks** via `ci-gate` |
+| Secret scan | Gitleaks v8.30.1 | **Blocks** on any finding. Scans the working tree, not full git history |
+| Dockerfile lint | Hadolint v2.15.1 | **Blocks** on error-level rules; all findings go to the Security tab |
+| SAST | Semgrep (`p/ci` ruleset) | Report-only: findings go to the Security tab as SARIF |
+| Deps + config + secrets | Trivy `fs` (HIGH/CRITICAL) | Report-only: SARIF to the Security tab |
+| Image scan | Trivy `image` (HIGH/CRITICAL) | Report-only: SARIF to the Security tab, one category per service |
+| SBOM | Syft, CycloneDX JSON | One SBOM artifact per service |
 
-If you did not build from source, don't worry all the images are on Docker Hub. Just pull down those images first using:
+`ci-gate` is a single required status check that fails if any upstream job failed. Branch protection requires it.
 
-```shell
-$ docker-compose pull
-```
+### On merge to `master` (`cd.yml`)
 
-Fire up Stan's Robot Shop with:
+1. **Authenticate to AWS with OIDC.** No access keys exist in the repo or in GitHub secrets for AWS. The IAM trust policy is scoped to `repo:charliepoker/robot-shop:ref:refs/heads/master`.
+2. **Build and push** each changed service to ECR as an **immutable `:<git-sha>` tag**.
+3. **Sign by digest** with Cosign keyless (Fulcio certificate, Rekor transparency log). There is no signing key to leak.
+4. **Attest**: SLSA build provenance (`actions/attest-build-provenance`) plus a CycloneDX SBOM attestation (`cosign attest --type cyclonedx`).
+5. **Verify in the pipeline**: `cosign verify` and `cosign verify-attestation` against the exact workflow identity before anything is promoted.
+6. **Hand off to GitOps**: mint a short-lived **GitHub App token** scoped to `robot-shop-gitOps`, update the image reference, and push a conventional commit as `robot-shop-cd[bot]`. No personal access token is used, and app developers have no write access to deployment config.
 
-```shell
-$ docker-compose up
-```
+### At the cluster (in [robot-shop-gitOps](https://github.com/charliepoker/robot-shop-gitOps))
 
-If you want to fire up some load as well:
+Two Kyverno `ClusterPolicy` resources apply to the `robot-shop` namespace:
 
-```shell
-$ docker-compose -f docker-compose.yaml -f docker-compose-load.yaml up
-```
+- **Signature verification: `Enforce`.** The image must be signed by this repo's `cd.yml` on `master` via the GitHub OIDC issuer.
+- **SBOM attestation verification: `Audit`.** Split out on purpose. The CycloneDX SBOM for `ratings` was 2.9 MB, over Kyverno's default 2 MiB admission context limit, which made Argo CD report ComparisonErrors for the whole app. Separating the two policies kept signature enforcement strict while the SBOM check records violations without blocking.
 
-If you are running it locally on a Linux host you can also run the Instana [agent](https://docs.instana.io/quick_start/agent_setup/container/docker/) locally, unfortunately the agent is currently not supported on Mac.
+### Pipeline hardening
 
-There is also only limited support on ARM architectures at the moment.
+- `step-security/harden-runner` is the first step of every job (egress policy: audit).
+- `zizmor` (v1.29.0) statically analyses the workflow files on any workflow change and reports to the Security tab.
+- Dependabot keeps GitHub Actions current via weekly PRs.
+- Trivy's action is pinned by commit SHA after the March 2026 tag compromise (CVE-2026-33634).
 
-## Kubernetes
-You can run Kubernetes locally using [minikube](https://github.com/kubernetes/minikube) or on one of the many cloud providers.
 
-The Docker container images are all available on [Docker Hub](https://hub.docker.com/u/robotshop/).
+## The application
 
-Install Stan's Robot Shop to your Kubernetes cluster using the [Helm](K8s/helm/README.md) chart.
+Eight services plus a custom MongoDB image, built into ECR by the pipeline.
 
-To deploy the Instana agent to Kubernetes, just use the [helm](https://github.com/instana/helm-charts) chart.
+| Service | Language | Datastore |
+|---|---|---|
+| cart | Node.js | Redis |
+| catalogue | Node.js | MongoDB |
+| user | Node.js | MongoDB, Redis |
+| web | nginx front end | none |
+| payment | Python | RabbitMQ |
+| dispatch | Go | RabbitMQ |
+| shipping | Java (Spring Boot) | MySQL (RDS) |
+| ratings | PHP | MySQL (RDS) |
 
-## Accessing the Store
-If you are running the store locally via *docker-compose up* then, the store front is available on localhost port 8080 [http://localhost:8080](http://localhost:8080/)
+**What I changed from upstream**
 
-If you are running the store on Kubernetes via minikube then, find the IP address of Minikube and the Node Port of the web service.
+- **MySQL moved to RDS** (MySQL 8.0, provisioned by the infra repo). MongoDB, Redis and RabbitMQ stay in-cluster to keep the demo cheap.
+- **Credentials come from the environment.** Upstream hardcodes database passwords in `ratings` and `shipping`. Both now read them from env vars, populated from AWS Secrets Manager through External Secrets. The old values remain only as local `docker-compose` fallbacks.
+- **Pipeline files added:** `ci.yml`, `cd.yml`, `workflow-audit.yml`, `dependabot.yml`, `.hadolint.yaml`, `.trivyignore`, `eslint.config.mjs`.
 
-```shell
-$ minikube ip
-$ kubectl get svc web
-```
+## Limitations and roadmap
 
-If you are using a cloud Kubernetes provider then it will be available on the load balancer of that system.
+I'd rather you read these here than discover them.
 
-## Load Generation
-A separate load generation utility is provided in the `load-gen` directory. This is not automatically run when the application is started. The load generator is built with Python and [Locust](https://locust.io). The `build.sh` script builds the Docker image, optionally taking *push* as the first argument to also push the image to the registry. The registry and tag settings are loaded from the `.env` file in the parent directory. The script `load-gen.sh` runs the image, it takes a number of command line arguments. You could run the container inside an orchestration system (K8s) as well if you want to, an example descriptor is provided in K8s directory. For End-user Monitoring ,load is not automatically generated but by navigating through the Robotshop from the browser .For more details see the [README](load-gen/README.md) in the load-gen directory.  
+- **Several scanners report but don't block yet:** Semgrep, Trivy (fs and image). They surface findings in the Security tab; turning them into hard gates is waiting on triage of the existing findings into `.trivyignore`.
+- **Gitleaks scans the working tree, not full history.** History scans were run separately, outside CI.
+- **Third-party actions are not all pinned to commit SHAs yet.** Most security-critical ones (Trivy, harden-runner, CodeQL SARIF upload, checkout) are. Several build and attestation actions still use version tags, and Dependabot will keep SHA pins current once they are converted. This is on the list.
+- **No OSV-Scanner or `dependency-review` step in CI today.** Dependency CVEs are covered only by Trivy's filesystem scan.
+- **Canary delivery is partial.** Argo Rollouts is installed in the cluster, and an analysis template and canary Service are committed, but `web` still runs as a plain Deployment. Finishing the Rollout conversion is next.
+- **The cluster is offline.** I tore it down after the observability phase to stop the AWS bill. Reliability hardening, chaos scenarios and a DR restore drill are not done.
 
-## Website Monitoring / End-User Monitoring
+## Credits
 
-### Docker Compose
-
-To enable Website Monioring / End-User Monitoring (EUM) see the official [documentation](https://docs.instana.io/website_monitoring/) for how to create a configuration. There is no need to inject the JavaScript fragment into the page, this will be handled automatically. Just make a note of the unique key and set the environment variable `INSTANA_EUM_KEY` and `INSTANA_EUM_REPORTING_URL` for the web image within `docker-compose.yaml`.
-
-### Kubernetes
-
-The Helm chart for installing Stan's Robot Shop supports setting the key and endpoint url required for website monitoring, see the [README](K8s/helm/README.md).
-
-## Prometheus
-
-The cart and payment services both have Prometheus metric endpoints. These are accessible on `/metrics`. The cart service provides:
-
-* Counter of the number of items added to the cart
-
-The payment services provides:
-
-* Counter of the number of items perchased
-* Histogram of the total number of items in each cart
-* Histogram of the total value of each cart
-
-To test the metrics use:
-
-```shell
-$ curl http://<host>:8080/api/cart/metrics
-$ curl http://<host>:8080/api/payment/metrics
-```
-
+Fork of [instana/robot-shop](https://github.com/instana/robot-shop) by Instana/IBM, used under the Apache-2.0 license. The sample application and its original documentation belong to its authors.
