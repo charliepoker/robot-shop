@@ -318,10 +318,10 @@ jobs:
         with: { persist-credentials: false }
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3          # ⚠️ pin before push
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Build image (no push; load for scanning)
-        uses: docker/build-push-action@v6            # ⚠️ pin before push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: ${{ matrix.service }}
           file: ${{ matrix.service }}/Dockerfile
@@ -350,10 +350,9 @@ jobs:
           category: trivy-image-${{ matrix.service }}   # unique per service so legs don't overwrite
 
       - name: Generate CycloneDX SBOM (Syft)
-        uses: anchore/sbom-action@v0                 # ⚠️ pin before push
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           image: ${{ env.IMAGE }}
           format: cyclonedx-json
           output-file: sbom-${{ matrix.service }}.cdx.json
           artifact-name: sbom-${{ matrix.service }}   # unique artifact name per leg (upload-artifact v4 requires it)
-       

@@ -122,7 +122,7 @@ I'd rather you read these here than discover them.
 
 - **Several scanners report but don't block yet:** Semgrep, Trivy (fs and image). They surface findings in the Security tab; turning them into hard gates is waiting on triage of the existing findings into `.trivyignore`.
 - **Gitleaks scans the working tree, not full history.** History scans were run separately, outside CI.
-- **Third-party actions are not all pinned to commit SHAs yet.** Most security-critical ones (Trivy, harden-runner, CodeQL SARIF upload, checkout) are. Several build and attestation actions still use version tags, and Dependabot will keep SHA pins current once they are converted. This is on the list.
+- **All third-party GitHub Actions are pinned to full commit SHAs and kept current by Dependabot. Gitleaks and Hadolint are installed as release binaries without checksum verification, which is a known gap.**
 - **No OSV-Scanner or `dependency-review` step in CI today.** Dependency CVEs are covered only by Trivy's filesystem scan.
 - **Canary delivery is partial.** Argo Rollouts is installed in the cluster, and an analysis template and canary Service are committed, but `web` still runs as a plain Deployment. Finishing the Rollout conversion is next.
 - **The cluster is offline.** I tore it down after the observability phase to stop the AWS bill. Reliability hardening, chaos scenarios and a DR restore drill are not done.
