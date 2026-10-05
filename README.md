@@ -7,7 +7,6 @@
 
 This is a fork of [instana/robot-shop](https://github.com/instana/robot-shop), a polyglot microservices demo app. **I use it as the workload.** The application code is mostly upstream. **My work is the delivery pipeline around it**: PR security gates, keyless image signing, build attestations, and an automated GitOps hand-off to an EKS cluster that refuses unsigned images.
 
-> **Status (Oct 2026):** pipeline built and exercised end to end (tagged `v4.0.0` for the pipeline work). The AWS environment is **torn down to control cost**, so any `*.devopsportfolio.com` URL is offline. It rebuilds from the three repos below. See [Limitations](#limitations-and-roadmap) for what is and isn't enforced today.
 
 ## The three repos
 
